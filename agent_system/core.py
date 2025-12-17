@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional
+import os
 import json
 import re
 
@@ -30,6 +31,10 @@ class Agent:
         self.model = model
         self.messages = []
         self.console = console
+        self._max_tool_output_chars = int(os.getenv("AI_CONGRESS_MAX_TOOL_OUTPUT_CHARS", "8000"))
+        self._max_tool_output_messages = int(os.getenv("AI_CONGRESS_MAX_TOOL_OUTPUT_MESSAGES", "6"))
+        self._max_context_chars = int(os.getenv("AI_CONGRESS_MAX_CONTEXT_CHARS", "60000"))
+        self._min_messages_to_keep = 10
         if self.system_prompt:
             self.messages.append({"role": "system", "content": self._build_system_prompt()})
 
@@ -65,10 +70,78 @@ class Agent:
         )
         return base_prompt
 
+    def _approx_context_chars(self) -> int:
+        return sum(len(str(m.get("content", ""))) for m in self.messages)
+
+    def _is_tool_output_message(self, message: Dict[str, Any]) -> bool:
+        return (
+            message.get("role") == "user"
+            and isinstance(message.get("content"), str)
+            and message["content"].startswith("Tool Output:")
+        )
+
+    def _truncate_text(self, text: str, max_chars: int) -> str:
+        if not isinstance(text, str):
+            text = str(text)
+        if max_chars <= 0:
+            return ""
+        if len(text) <= max_chars:
+            return text
+
+        head = min(6000, max_chars)
+        tail = min(1500, max_chars - head)
+        omitted = len(text) - head - tail
+        suffix = text[-tail:] if tail > 0 else ""
+        return (
+            f"[Tool output truncated: {len(text)} chars total; omitted {omitted} chars]\n"
+            f"{text[:head]}\n...\n{suffix}"
+        )
+
+    def _enforce_context_limits(self) -> None:
+        if len(self.messages) <= 2:
+            return
+
+        # 1) Ensure tool outputs are not massive.
+        for message in self.messages:
+            if self._is_tool_output_message(message):
+                content = message.get("content", "")
+                if isinstance(content, str) and len(content) > self._max_tool_output_chars:
+                    prefix = "Tool Output:"
+                    rest = content[len(prefix):].lstrip("\n")
+                    budget = max(0, self._max_tool_output_chars - len(prefix) - 1)
+                    message["content"] = f"{prefix}\n{self._truncate_text(rest, budget)}"
+
+        # 2) Keep only the most recent N tool outputs.
+        tool_indices = [i for i, m in enumerate(self.messages) if self._is_tool_output_message(m)]
+        if self._max_tool_output_messages > 0 and len(tool_indices) > self._max_tool_output_messages:
+            to_remove = tool_indices[: len(tool_indices) - self._max_tool_output_messages]
+            for idx in reversed(to_remove):
+                del self.messages[idx]
+
+        # 3) If still too large, prune oldest tool outputs first, then oldest non-system messages.
+        def system_offset() -> int:
+            return 1 if self.messages and self.messages[0].get("role") == "system" else 0
+
+        while self._approx_context_chars() > self._max_context_chars and len(self.messages) > 2:
+            removed = False
+            for i in range(system_offset(), len(self.messages)):
+                if self._is_tool_output_message(self.messages[i]):
+                    del self.messages[i]
+                    removed = True
+                    break
+
+            if removed:
+                continue
+
+            if len(self.messages) <= system_offset() + self._min_messages_to_keep:
+                break
+            del self.messages[system_offset()]
+
     def run(self, user_input: str) -> str:
         self.messages.append({"role": "user", "content": user_input})
         
         while True:
+            self._enforce_context_limits()
             # Call LLM
             if self.console:
                 with self.console.status("[bold green]Thinking...", spinner="dots"):
@@ -106,12 +179,19 @@ class Agent:
                     self._log(f"[bold green]Result:[/bold green] {result[:100]}..." if len(result) > 100 else f"[bold green]Result:[/bold green] {result}")
                 else:
                     print(f"Tool result: {result}")
-                
+
+                safe_result = self._truncate_text(result, self._max_tool_output_chars)
+
                 # Add a system reminder to the tool output to keep the agent on track
                 self.messages.append({
                     "role": "user", 
-                    "content": f"Tool Output: {result}\n\n(Remember to use this information to answer the user's original request: '{user_input}')"
+                    "content": (
+                        f"Tool Output:\n{safe_result}\n\n"
+                        f"(Remember to use this information to answer the user's original request: '{user_input}')"
+                    )
                 })
+
+                self._enforce_context_limits()
 
     def _parse_tool_calls(self, content: str) -> List[tuple]:
         tool_calls = []
