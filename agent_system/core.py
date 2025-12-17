@@ -112,9 +112,10 @@ class Agent:
                 })
 
     def _parse_tool_calls(self, content: str) -> List[tuple]:
-        # Look for json block
-        matches = re.findall(r"```json\s*(\{.*?\})\s*```", content, re.DOTALL)
         tool_calls = []
+
+        # Primary channel: look for ```json code blocks
+        matches = re.findall(r"```json\s*(\{.*?\})\s*```", content, re.DOTALL)
         for match in matches:
             try:
                 data = json.loads(match)
@@ -122,4 +123,22 @@ class Agent:
                     tool_calls.append((data["tool"], data.get("args", {})))
             except json.JSONDecodeError:
                 pass
+
+        if tool_calls:
+            return tool_calls
+
+        # Fallback: scan for raw JSON objects in the stream even if fences are missing
+        decoder = json.JSONDecoder()
+        idx = 0
+        length = len(content)
+
+        while idx < length:
+            try:
+                obj, end = decoder.raw_decode(content[idx:])
+                idx += end
+                if isinstance(obj, dict) and "tool" in obj:
+                    tool_calls.append((obj["tool"], obj.get("args", {})))
+            except json.JSONDecodeError:
+                idx += 1
+
         return tool_calls
