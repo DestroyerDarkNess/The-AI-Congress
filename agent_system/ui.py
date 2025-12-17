@@ -12,6 +12,7 @@ from rich.live import Live
 from rich.spinner import Spinner
 from rich.layout import Layout
 from rich.prompt import Prompt
+from rich.box import ROUNDED
 
 # --- Colors from Letta Code ---
 COLORS = {
@@ -35,20 +36,24 @@ COLORS = {
 }
 
 # --- ASCII Art ---
-ASCII_LOGO = """
-  _______ _            
- |__   __| |           
-    | |  | |__   ___   
-    | |  | '_ \ / _ \  
-    | |  | | | |  __/  
-    |_|  |_| |_|\___|  
-                       
-   _    _  _____       
-  | |  | |/ ____|      
-  | |__| | |  __       
-  |  __  | | |_ |      
-  | |  | | |__| |      
-  |_|  |_|\_____|      
+ASCII_LOGO = r"""
+                @@@             
+                @@@@@           
+             @@@@@@             
+          @@@@@  @@@@@          
+        @@@          @@@        
+       @@@            @@@       
+       @@@@@@@@@@@@@@@@@@       
+       @@ @@ @ @@ @ @@ @@       
+       @@ @@ @ @@ @ @@ @@       
+@@@===@@@@@@@@@@@@@@@@@@@@===@@@
+@@                            @@
+@@ @@@ @@@@ @@@ @@@  @@@ @@@  @@
+@@ @@@  @@  @@@  @@  @@@ @@@  @@
+@@ @@@ @@@@ @@@ @@@  @@@ @@@  @@
+@@ @@@ @@@@ @@@ @@@  @@@ @@@  @@
+@@                            @@
+@@@==========================@@@
 """
 
 class UI:
@@ -60,6 +65,10 @@ class UI:
             "warning": COLORS["statusWarning"],
             "error": COLORS["statusError"],
             "dim": COLORS["textDisabled"],
+            "markdown.h1": f"bold {COLORS['primaryAccent']}",
+            "markdown.h2": f"bold {COLORS['primaryAccentLight']}",
+            "markdown.item": "white",
+            "markdown.code": "cyan",
         })
         self.console = Console(theme=self.theme)
         self.spinner = Spinner("dots", style=COLORS["primaryAccent"])
@@ -146,6 +155,19 @@ class UI:
         grid.add_row(prefix, content)
         
         self.console.print(grid)
+        self.console.print()
+
+    def print_plan(self, title: str, plan_text: str):
+        """Prints the plan rendered as Markdown in a Panel."""
+        md = Markdown(plan_text)
+        panel = Panel(
+            md, 
+            title=title, 
+            border_style=COLORS['primaryAccentLight'], 
+            box=ROUNDED, 
+            padding=(1, 2)
+        )
+        self.console.print(panel)
         self.console.print()
 
     def print_parliament_header(self, round_num: int):

@@ -21,7 +21,11 @@ class Parliament:
         # 1. President creates initial plan
         self._log("[bold yellow]President is creating the initial plan...[/bold yellow]")
         current_plan = self.president.create_plan(objective, tools_description)
-        self._log(f"\n[bold cyan][Initial Plan]:[/bold cyan]\n{current_plan}\n")
+        
+        if self.ui:
+            self.ui.print_plan("Initial Plan", current_plan)
+        else:
+            self._log(f"\n[bold cyan][Initial Plan]:[/bold cyan]\n{current_plan}\n")
 
         max_rounds = 3
         for round_num in range(1, max_rounds + 1):
@@ -74,7 +78,11 @@ class Parliament:
             if round_num < max_rounds:
                 self._log("[bold yellow]Consensus not reached. President is revising the plan...[/bold yellow]")
                 current_plan = self.president.revise_plan(current_plan, feedback_list, objective)
-                self._log(f"\n[bold cyan][Revised Plan V{round_num + 1}]:[/bold cyan]\n{current_plan}\n")
+                
+                if self.ui:
+                    self.ui.print_plan(f"Revised Plan V{round_num + 1}", current_plan)
+                else:
+                    self._log(f"\n[bold cyan][Revised Plan V{round_num + 1}]:[/bold cyan]\n{current_plan}\n")
             else:
                 self._log("[bold red]Max rounds reached. Proceeding with current plan despite lack of full consensus.[/bold red]")
                 return current_plan
