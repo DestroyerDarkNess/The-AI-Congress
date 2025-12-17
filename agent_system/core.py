@@ -24,25 +24,19 @@ class Tool(ABC):
         pass
 
 class Agent:
-    def __init__(self, provider, tools: List[Tool], system_prompt: str = "", model: str = "zai-glm-4-flash", console=None):
+    def __init__(self, provider, tools: List[Tool], system_prompt: str = "", model: str = "zai-glm-4-flash", ui=None):
         self.provider = provider
         self.tools = {t.name: t for t in tools}
         self.system_prompt = system_prompt
         self.model = model
         self.messages = []
-        self.console = console
+        self.ui = ui
         self._max_tool_output_chars = int(os.getenv("AI_CONGRESS_MAX_TOOL_OUTPUT_CHARS", "8000"))
         self._max_tool_output_messages = int(os.getenv("AI_CONGRESS_MAX_TOOL_OUTPUT_MESSAGES", "6"))
         self._max_context_chars = int(os.getenv("AI_CONGRESS_MAX_CONTEXT_CHARS", "60000"))
         self._min_messages_to_keep = 10
         if self.system_prompt:
             self.messages.append({"role": "system", "content": self._build_system_prompt()})
-
-    def _log(self, message, style=None):
-        if self.console:
-            self.console.print(message, style=style)
-        else:
-            print(message)
 
     def _build_system_prompt(self) -> str:
         tool_descriptions = "\n".join([json.dumps(t.to_schema(), indent=2) for t in self.tools.values()])
@@ -143,8 +137,8 @@ class Agent:
         while True:
             self._enforce_context_limits()
             # Call LLM
-            if self.console:
-                with self.console.status("[bold green]Thinking...", spinner="dots"):
+            if self.ui:
+                with self.ui.status("Thinking..."):
                     response_content = self.provider.generate(self.messages, model=self.model)
             else:
                 print("Thinking...")
@@ -160,12 +154,15 @@ class Agent:
             
             # Execute tools
             for tool_name, tool_args in tool_calls:
-                self._log(f"[bold blue]Executing tool:[/bold blue] {tool_name} with args {tool_args}")
+                if self.ui:
+                    self.ui.print_tool_call(tool_name, json.dumps(tool_args))
+                else:
+                    print(f"Executing tool: {tool_name} with args {tool_args}")
                 
                 if tool_name in self.tools:
                     try:
-                        if self.console:
-                            with self.console.status(f"[bold yellow]Executing {tool_name}...", spinner="bouncingBall"):
+                        if self.ui:
+                            with self.ui.status(f"Executing {tool_name}..."):
                                 result = self.tools[tool_name].execute(**tool_args)
                         else:
                             result = self.tools[tool_name].execute(**tool_args)
@@ -173,10 +170,13 @@ class Agent:
                         result = f"Error executing tool: {str(e)}"
                 else:
                     result = f"Error: Tool '{tool_name}' not found."
-                    self._log(f"[bold red]{result}[/bold red]")
+                    if self.ui:
+                        self.ui.print_tool_result(result, is_error=True)
+                    else:
+                        print(f"Error: {result}")
 
-                if self.console:
-                    self._log(f"[bold green]Result:[/bold green] {result[:100]}..." if len(result) > 100 else f"[bold green]Result:[/bold green] {result}")
+                if self.ui:
+                    self.ui.print_tool_result(result, is_error=result.startswith("Error"))
                 else:
                     print(f"Tool result: {result}")
 

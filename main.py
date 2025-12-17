@@ -1,14 +1,11 @@
 import os
 from dotenv import load_dotenv
-from rich.console import Console
-from rich.panel import Panel
-from rich.markdown import Markdown
-from rich.prompt import Prompt
 
 from agent_system.core import Agent
 from agent_system.tools import ALL_TOOLS
 from agent_system.planning import President, Deputy, Parliament
 from agent_system.llm import OpenAILikeProvider
+from agent_system.ui import ui
 
 # Load environment variables
 load_dotenv()
@@ -19,13 +16,8 @@ provider = OpenAILikeProvider(
     base_url="https://unifiedai.runasp.net/v1"
 )
 
-# Initialize Rich Console
-console = Console()
-
-
 def main():
-    console.print(Panel.fit("[bold cyan]The AI Congress v2.1 - By https://github.com/DestroyerDarkNess/ [/bold cyan]", border_style="cyan"))
-    console.print("[dim]Initializing tools...[/dim]")
+    ui.print_welcome(model="moonshot-MBZUAI-IFM/K2-Think")
     
     # Initialize tools
     tools = ALL_TOOLS
@@ -53,48 +45,49 @@ def main():
             provider=provider
         )
     ]
-    parliament = Parliament(president=president, deputies=deputies, console=console)
+    parliament = Parliament(president=president, deputies=deputies, ui=ui)
     
     # Initialize Agent
     system_prompt = "You are a helpful AI assistant capable of using tools to interact with the file system."
 
-    agent = Agent(provider=provider, tools=tools, system_prompt=system_prompt, model="moonshot-MBZUAI-IFM/K2-Think", console=console)
+    agent = Agent(provider=provider, tools=tools, system_prompt=system_prompt, model="moonshot-MBZUAI-IFM/K2-Think", ui=ui)
     
-    console.print("[bold green]Agent ready.[/bold green] Type [bold red]'exit'[/bold red] to quit.")
+    ui.console.print("[bold green]Agent ready.[/bold green] Type [bold red]'exit'[/bold red] to quit.")
     
     while True:
         try:
-            console.print()
-            user_input = Prompt.ask("[bold yellow]User[/bold yellow]")
+            user_input = ui.input()
             
             if not user_input:
                 continue
                 
             if user_input.lower() in ['exit', 'quit']:
-                console.print("[bold red]Goodbye![/bold red]")
+                ui.console.print("[bold red]Goodbye![/bold red]")
                 break
+
+            ui.print_user_message(user_input)
 
             decision = president.should_plan(user_input, tools_desc)
             should_plan = decision.get("plan", True)
             reason = decision.get("reason", "No reason provided.")
 
             if not should_plan:
-                console.print(Panel.fit(f"[bold yellow]Skipping planning[/bold yellow]\n{reason}", border_style="yellow"))
+                ui.console.print(f"[bold yellow]Skipping planning[/bold yellow]: {reason}")
                 direct_prompt = (
                     f"Objective: {user_input}\n\n"
                     f"The president decided planning is not required because: {reason}\n"
                     "Respond directly. Use tools only if they clearly add value."
                 )
                 response = agent.run(direct_prompt)
-                console.print(Panel(Markdown(response), title="[bold cyan]Assistant[/bold cyan]", border_style="cyan"))
+                ui.print_assistant_message(response)
                 continue
             
             # 1. Parliament Session
-            console.print(Panel("???  Parliament is in session...", style="bold magenta"))
-            approved_plan = parliament.conduct_session(user_input, tools_desc)
+            with ui.status("Parliament is in session..."):
+                approved_plan = parliament.conduct_session(user_input, tools_desc)
             
             # 2. Agent Execution
-            console.print(Panel("??  Agent is executing the plan...", style="bold green"))
+            ui.console.print("[bold green]Agent is executing the plan...[/bold green]")
             execution_prompt = (
                 f"Objective: {user_input}\n\n"
                 f"APPROVED PLAN:\n{approved_plan}\n\n"
@@ -103,13 +96,13 @@ def main():
             
             response = agent.run(execution_prompt)
             
-            console.print(Panel(Markdown(response), title="[bold cyan]Assistant[/bold cyan]", border_style="cyan"))
+            ui.print_assistant_message(response)
             
         except KeyboardInterrupt:
-            console.print("\n[bold red]Goodbye![/bold red]")
+            ui.console.print("\n[bold red]Goodbye![/bold red]")
             break
         except Exception as e:
-            console.print(f"\n[bold red]An error occurred:[/bold red] {e}")
+            ui.console.print(f"\n[bold red]An error occurred:[/bold red] {e}")
 
 
 if __name__ == "__main__":

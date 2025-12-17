@@ -3,14 +3,14 @@ from .deputy import Deputy
 from .president import President
 
 class Parliament:
-    def __init__(self, president: President, deputies: List[Deputy], console=None):
+    def __init__(self, president: President, deputies: List[Deputy], ui=None):
         self.president = president
         self.deputies = deputies
-        self.console = console
+        self.ui = ui
 
     def _log(self, message, style=None):
-        if self.console:
-            self.console.print(message, style=style)
+        if self.ui:
+            self.ui.console.print(message, style=style)
         else:
             print(message)
 
@@ -25,7 +25,11 @@ class Parliament:
 
         max_rounds = 3
         for round_num in range(1, max_rounds + 1):
-            self._log(f"[bold magenta]--- Round {round_num} of Voting ---[/bold magenta]")
+            if self.ui:
+                self.ui.print_parliament_header(round_num)
+            else:
+                self._log(f"[bold magenta]--- Round {round_num} of Voting ---[/bold magenta]")
+            
             votes = []
             feedback_list = []
             
@@ -34,7 +38,6 @@ class Parliament:
             yes_votes = 0
             
             for deputy in self.deputies:
-                # self._log(f"Deputy {deputy.name} ({deputy.persona}) is reviewing...")
                 review = deputy.review_plan(current_plan, objective, tools_description)
                 
                 if "error" in review:
@@ -50,8 +53,11 @@ class Parliament:
                     
                 feedback_list.append({"deputy": deputy.name, "note": note, "vote": vote})
                 
-                status = "[bold green]YES[/bold green]" if vote else "[bold red]NO[/bold red]"
-                self._log(f"  -> Deputy [bold]{deputy.name}[/bold]: {status} | Note: [dim]{note}[/dim]")
+                if self.ui:
+                    self.ui.print_deputy_vote(deputy.name, vote, note)
+                else:
+                    status = "[bold green]YES[/bold green]" if vote else "[bold red]NO[/bold red]"
+                    self._log(f"  -> Deputy [bold]{deputy.name}[/bold]: {status} | Note: [dim]{note}[/dim]")
 
             # 3. Check Consensus
             if valid_votes == 0:
