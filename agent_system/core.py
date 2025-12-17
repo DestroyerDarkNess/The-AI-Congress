@@ -60,7 +60,8 @@ class Agent:
             "6. ACTION BIAS: If the user asks you to do something (e.g., 'create a landing page') and you have the info, DO NOT ask for permission to create the file. JUST CREATE IT using 'modify_file'.\n"
             "7. ACTION BIAS: If the user says 'go ahead', 'yes', or 'do it', EXECUTE the planned action immediately.\n"
             "8. For large files: use 'search_text' to locate relevant areas, then 'read_file' with start_line/max_lines (optionally with_line_numbers). Do NOT try to read entire huge files at once.\n"
-            "9. For edits: prefer 'apply_patch' (unified diff) for targeted changes. Use 'modify_file' only when you intend to overwrite the whole file."
+            "9. For edits: prefer 'apply_patch' (unified diff) for targeted changes. Use 'modify_file' only when you intend to overwrite the whole file.\n"
+            "10. REGEX WARNING: When using regex in JSON (e.g. for search_text), you MUST double-escape backslashes. Example: use '\\\\d' for digit, NOT '\\d'. Use '[\\\\s\\\\S]' NOT '[\\s\\S]'. Invalid JSON will cause failure."
         )
         return base_prompt
 
@@ -193,6 +194,13 @@ class Agent:
 
                 self._enforce_context_limits()
 
+    def _repair_json(self, json_str: str) -> str:
+        """Attempts to repair common JSON errors, specifically unescaped backslashes."""
+        # Replace unescaped backslashes that are NOT part of a valid escape sequence.
+        # Valid escapes: \" \\ \/ \b \f \n \r \t \uXXXX
+        # Regex: \\(?![/\"\\bfnrtu])
+        return re.sub(r'\\(?![/\"\\bfnrtu])', r'\\\\', json_str)
+
     def _parse_tool_calls(self, content: str) -> List[tuple]:
         tool_calls = []
 
@@ -204,7 +212,13 @@ class Agent:
                 if "tool" in data:
                     tool_calls.append((data["tool"], data.get("args", {})))
             except json.JSONDecodeError:
-                pass
+                try:
+                    repaired = self._repair_json(match)
+                    data = json.loads(repaired)
+                    if "tool" in data:
+                        tool_calls.append((data["tool"], data.get("args", {})))
+                except:
+                    pass
 
         if tool_calls:
             return tool_calls
@@ -221,6 +235,37 @@ class Agent:
                 if isinstance(obj, dict) and "tool" in obj:
                     tool_calls.append((obj["tool"], obj.get("args", {})))
             except json.JSONDecodeError:
-                idx += 1
+                # Try repair on a candidate block
+                if content[idx:].strip().startswith('{"tool"'):
+                    # Naive brace counting to find end of block
+                    balance = 0
+                    start_idx = content.find('{', idx)
+                    if start_idx == -1:
+                        idx += 1
+                        continue
+                        
+                    found = False
+                    for i, char in enumerate(content[start_idx:], start=start_idx):
+                        if char == '{':
+                            balance += 1
+                        elif char == '}':
+                            balance -= 1
+                            if balance == 0:
+                                candidate = content[start_idx:i+1]
+                                try:
+                                    repaired = self._repair_json(candidate)
+                                    obj = json.loads(repaired)
+                                    if isinstance(obj, dict) and "tool" in obj:
+                                        tool_calls.append((obj["tool"], obj.get("args", {})))
+                                        idx = i + 1
+                                        found = True
+                                        break
+                                except:
+                                    pass
+                                break
+                    if not found:
+                        idx += 1
+                else:
+                    idx += 1
 
         return tool_calls
