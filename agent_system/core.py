@@ -92,6 +92,62 @@ class Agent:
             f"{text[:head]}\n...\n{suffix}"
         )
 
+    def _compress_history(self) -> None:
+        """Compresses the message history by summarizing older messages."""
+        # Don't compress if we don't have enough history
+        if len(self.messages) < 5:
+            return
+
+        system_offset = 1 if self.messages and self.messages[0].get("role") == "system" else 0
+        messages_to_summarize = self.messages[system_offset:-1]
+        
+        if not messages_to_summarize:
+            return
+
+        chars_to_compress = sum(len(str(m.get("content", ""))) for m in messages_to_summarize)
+        if chars_to_compress < self._max_context_chars * 0.5: 
+            return
+
+        if self.ui:
+            self.ui.print_tool_result("Compressing conversation history...", is_error=False)
+        else:
+            print("Compressing conversation history...")
+
+        conversation_text = ""
+        for m in messages_to_summarize:
+            role = m.get("role", "unknown")
+            content = m.get("content", "")
+            conversation_text += f"{role.upper()}: {content}\n\n"
+
+        summary_prompt = [
+            {"role": "system", "content": "You are a helpful assistant. Summarize the following conversation history concisely, retaining key information, decisions, and current state. The summary will be used as context for future actions."},
+            {"role": "user", "content": f"Conversation to summarize:\n{conversation_text}"}
+        ]
+        
+        try:
+            summary = self.provider.generate(summary_prompt, model=self.model)
+            
+            new_messages = []
+            if system_offset == 1:
+                new_messages.append(self.messages[0])
+            
+            new_messages.append({
+                "role": "system", 
+                "content": f"Previous Conversation Summary:\n{summary}"
+            })
+            
+            new_messages.append(self.messages[-1])
+            
+            self.messages = new_messages
+            
+            if self.ui:
+                self.ui.print_tool_result(f"History compressed. Summary length: {len(summary)} chars.", is_error=False)
+            
+        except Exception as e:
+            if self.ui:
+                self.ui.print_tool_result(f"Failed to compress history: {e}", is_error=True)
+            print(f"Failed to compress history: {e}")
+
     def _enforce_context_limits(self) -> None:
         if len(self.messages) <= 2:
             return
@@ -113,7 +169,11 @@ class Agent:
             for idx in reversed(to_remove):
                 del self.messages[idx]
 
-        # 3) If still too large, prune oldest tool outputs first, then oldest non-system messages.
+        # 3) Check if we need to compress history
+        if self._approx_context_chars() > self._max_context_chars:
+            self._compress_history()
+
+        # 4) If STILL too large after compression (or if compression failed/skipped), prune.
         def system_offset() -> int:
             return 1 if self.messages and self.messages[0].get("role") == "system" else 0
 
@@ -135,6 +195,9 @@ class Agent:
     def run(self, user_input: str) -> str:
         self.messages.append({"role": "user", "content": user_input})
         
+        last_tool_call_signature = None
+        consecutive_loops = 0
+
         while True:
             self._enforce_context_limits()
             # Call LLM
@@ -155,6 +218,32 @@ class Agent:
             
             # Execute tools
             for tool_name, tool_args in tool_calls:
+                # Loop detection
+                current_signature = (tool_name, json.dumps(tool_args, sort_keys=True))
+                if current_signature == last_tool_call_signature:
+                    consecutive_loops += 1
+                    if consecutive_loops >= 1:
+                        result = (
+                            "System Error: You are calling the exact same tool with the same arguments "
+                            "as the previous step. This is a loop. You MUST change your arguments or approach."
+                        )
+                        if self.ui:
+                            self.ui.print_tool_result(result, is_error=True)
+                        else:
+                            print(f"Loop detected: {result}")
+                        
+                        # Add to history and continue to next iteration of while loop (new generation)
+                        # We don't execute the tool.
+                        safe_result = self._truncate_text(result, self._max_tool_output_chars)
+                        self.messages.append({
+                            "role": "user", 
+                            "content": f"Tool Output:\n{safe_result}"
+                        })
+                        continue
+                else:
+                    consecutive_loops = 0
+                    last_tool_call_signature = current_signature
+
                 if self.ui:
                     self.ui.print_tool_call(tool_name, json.dumps(tool_args))
                 else:
