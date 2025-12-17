@@ -9,6 +9,7 @@ class Deputy:
         self.provider = provider
 
     def review_plan(self, plan: str, objective: str, tools_description: str) -> Dict[str, Any]:
+        content = ""
         system_prompt = (
             f"You are {self.name}, a Deputy in the AI Parliament.\n"
             f"Your Persona: {self.persona}\n\n"
