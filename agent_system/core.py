@@ -59,7 +59,9 @@ class Agent:
             "4. If you need to find files or code but don't know where they are, ALWAYS start by using 'list_directory' with path='.' to see what is available.\n"
             "5. Use 'system_shell' ONLY for tasks not covered by other tools, or if explicitly requested. It is a powerful fallback.\n"
             "6. ACTION BIAS: If the user asks you to do something (e.g., 'create a landing page') and you have the info, DO NOT ask for permission to create the file. JUST CREATE IT using 'modify_file'.\n"
-            "7. ACTION BIAS: If the user says 'go ahead', 'yes', or 'do it', EXECUTE the planned action immediately."
+            "7. ACTION BIAS: If the user says 'go ahead', 'yes', or 'do it', EXECUTE the planned action immediately.\n"
+            "8. For large files: use 'search_text' to locate relevant areas, then 'read_file' with start_line/max_lines (optionally with_line_numbers). Do NOT try to read entire huge files at once.\n"
+            "9. For edits: prefer 'apply_patch' (unified diff) for targeted changes. Use 'modify_file' only when you intend to overwrite the whole file."
         )
         return base_prompt
 
