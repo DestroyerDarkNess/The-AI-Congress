@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+env/
+venv/
+pip-wheel-metadata/
+*.egg
+*.log
+.mypy_cache/
+.pytest_cache/
+__pypackages__/
+.env 
+.vscode/ 
+*.sqlite3
